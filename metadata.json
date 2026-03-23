@@ -1,0 +1,5 @@
+{
+  "name": "LocalGov Payroll Simulator 2026",
+  "description": "A comprehensive payroll and leave management dashboard for Italian local government employees (Enti Locali), based on the latest CCNL Funzioni Locali standards updated to 2026 expectations.",
+  "requestFramePermissions": []
+}
