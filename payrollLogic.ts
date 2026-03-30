@@ -1,121 +1,332 @@
+// =============================================================================
+// PAYROLL LOGIC — Cedolino Enti Locali
+// CCNL Funzioni Locali 2022-2024 | Legge 207/2024 | D.Lgs. 36/2023
+// =============================================================================
 
 import { PayrollState, PayrollResult } from './types';
-import { SALARY_DATABASE, PREV_RATES, IRPEF_BRACKETS, REGIONS } from './constants';
+import {
+  SALARY_DATABASE,
+  PREV_RATES,
+  IRPEF_BRACKETS_2025,
+  WORK_DEDUCTIONS,
+  CUNEO_FISCALE_2025,
+  REGIONS,
+  DEFAULT_MUNICIPAL_ADD_RATE,
+  MONTHS_PER_YEAR,
+  WORKING_DAYS_MONTHLY_5GG,
+  WORKING_DAYS_MONTHLY_6GG,
+} from './constants';
 
+// ---------------------------------------------------------------------------
+// Helper: calcolo IRPEF lorda su base annua
+// ---------------------------------------------------------------------------
+const calcGrossIrpef = (taxableAnnual: number): number => {
+  let gross = 0;
+  let prev = 0;
+  for (const bracket of IRPEF_BRACKETS_2025) {
+    if (taxableAnnual <= prev) break;
+    const slice = Math.min(taxableAnnual, bracket.to) - prev;
+    gross += slice * bracket.rate;
+    prev = bracket.to;
+  }
+  return gross;
+};
+
+// ---------------------------------------------------------------------------
+// Helper: detrazioni lavoro dipendente annuali (art. 13 TUIR)
+// ---------------------------------------------------------------------------
+const calcWorkDeduction = (taxableAnnual: number): number => {
+  const d = WORK_DEDUCTIONS;
+  if (taxableAnnual <= 0) return 0;
+  if (taxableAnnual <= d.tier1_limit) return d.tier1_amount;
+  if (taxableAnnual <= d.tier2_limit) {
+    return d.tier2_base + d.tier2_extra * ((d.tier2_limit - taxableAnnual) / (d.tier2_limit - d.tier1_limit));
+  }
+  if (taxableAnnual <= d.tier3_limit) {
+    return d.tier3_base * ((d.tier3_limit - taxableAnnual) / (d.tier3_limit - d.tier2_limit));
+  }
+  return 0;
+};
+
+// ---------------------------------------------------------------------------
+// Helper: detrazioni carichi di famiglia (art. 12 TUIR)
+// NB: dal 2022 i figli under 21 → AUU INPS (non detrazione IRPEF).
+//     Qui si gestiscono figli over 21 + coniuge + altri.
+// ---------------------------------------------------------------------------
+const calcFamilyDeductions = (
+  taxableAnnual: number,
+  coniuge: boolean,
+  figli: number,
+  altri: number
+): number => {
+  if (taxableAnnual <= 0) return 0;
+  let total = 0;
+
+  // Coniuge a carico — art. 12 co. 1 lett. a TUIR
+  if (coniuge) {
+    if (taxableAnnual <= 15000) total += 800;
+    else if (taxableAnnual <= 29000) total += 690 + 110 * ((29000 - taxableAnnual) / 14000);
+    else if (taxableAnnual <= 35000) total += 700 * ((35000 - taxableAnnual) / 6000);
+    else if (taxableAnnual <= 40000) total += 710 * ((40000 - taxableAnnual) / 5000);
+    // coefficiente correttivo per redditi specifici omesso per semplicità
+  }
+
+  // Figli over 21 a carico (under 21 → AUU, non IRPEF)
+  for (let i = 0; i < figli; i++) {
+    // 950€ per figlio; +200€ se minore di 3 anni (non gestito qui senza data nascita)
+    const detr = 950;
+    const coeff = Math.max(0, (95000 - taxableAnnual) / 95000);
+    total += detr * coeff;
+  }
+
+  // Altri familiari a carico — 750€ ciascuno proporzionale
+  for (let i = 0; i < altri; i++) {
+    const coeff = Math.max(0, (80000 - taxableAnnual) / 80000);
+    total += 750 * coeff;
+  }
+
+  return Math.max(0, total);
+};
+
+// ---------------------------------------------------------------------------
+// Helper: Cuneo Fiscale 2025 — L. 207/2024
+// ---------------------------------------------------------------------------
+const calcCuneo2025 = (
+  taxableAnnual: number
+): { bonus: number; detrazioneUlteriore: number } => {
+  const c = CUNEO_FISCALE_2025;
+  let bonus = 0;
+  let detrazioneUlteriore = 0;
+
+  if (taxableAnnual <= c.BONUS_TIER1.limit) {
+    bonus = taxableAnnual * c.BONUS_TIER1.rate;
+  } else if (taxableAnnual <= c.BONUS_TIER2.limit) {
+    bonus = taxableAnnual * c.BONUS_TIER2.rate;
+  } else if (taxableAnnual <= c.BONUS_TIER3.limit) {
+    bonus = taxableAnnual * c.BONUS_TIER3.rate;
+  } else if (taxableAnnual <= c.DETRAZIONE_PIENA.to) {
+    detrazioneUlteriore = c.DETRAZIONE_PIENA.amount;
+  } else if (taxableAnnual <= c.DETRAZIONE_SLIDING.to) {
+    detrazioneUlteriore = c.DETRAZIONE_PIENA.amount *
+      ((c.DETRAZIONE_SLIDING.to - taxableAnnual) /
+       (c.DETRAZIONE_SLIDING.to - c.DETRAZIONE_PIENA.to));
+  }
+
+  return { bonus, detrazioneUlteriore };
+};
+
+// ---------------------------------------------------------------------------
+// Helper: Trattamento Integrativo — art. 1 D.L. 3/2020 conv. L. 21/2020
+// Importo annuo 1.200€; fascia 15k-28k condizionato alla capienza fiscale.
+// ---------------------------------------------------------------------------
+const calcTrattamentoIntegrativo = (
+  taxableAnnual: number,
+  annualGrossIrpef: number,
+  workDeduction: number
+): number => {
+  if (taxableAnnual <= 15000) {
+    // Spetta se c'è capienza fiscale (IRPEF lorda > detrazione lavoro dipendente)
+    return annualGrossIrpef > workDeduction ? 1200 : 0;
+  }
+  if (taxableAnnual <= 28000) {
+    // Spetta se la somma detrazioni per oneri eccede IRPEF lorda.
+    // Non verificabile senza dati oneri individuali: si assume spettante
+    // con apposito warning in UI (stimato).
+    return 1200;
+  }
+  return 0;
+};
+
+// ---------------------------------------------------------------------------
+// MAIN — calculatePayroll
+// ---------------------------------------------------------------------------
 export const calculatePayroll = (state: PayrollState): PayrollResult => {
   const tableEntry = SALARY_DATABASE[state.area];
-  const positionDetail = tableEntry.positions[state.formerPosition] || Object.values(tableEntry.positions)[0];
-  
-  // 1. COMPONENTI LORDE ANNUALI
-  const baseAnnual = positionDetail.baseAnnual;
-  const compartoAnnual = tableEntry.indennitaComparto;
-  const ivcAnnual = tableEntry.ivcAnnual;
-  const accessoryAnnual = state.monthlyPerformance * 12;
+  const positionDetail =
+    tableEntry.positions[state.positionKey] ??
+    Object.values(tableEntry.positions)[0];
 
-  // Trattenuta Brunetta (penalizzazione accessorio primi 10gg malattia)
-  const dailyAccessory = tableEntry.indennitaComparto / 365;
-  const brunettaPenaltyAnnual = Math.min(state.sickDays, 10) * dailyAccessory;
-  
-  const totalAnnualGross = baseAnnual + compartoAnnual + ivcAnnual + accessoryAnnual - brunettaPenaltyAnnual;
-  
-  // 2. CONTRIBUTI PREVIDENZIALI (Ex-INPDAP)
-  const annualSocialContrib = totalAnnualGross * PREV_RATES.CPDEL;
-  const annualFcContrib = totalAnnualGross * PREV_RATES.FONDO_CREDITO;
-  const annualPerseoContrib = state.isPerseoSirio ? (totalAnnualGross * 0.01) : 0;
+  const workingDaysPerMonth = state.isFiveDayWeek
+    ? WORKING_DAYS_MONTHLY_5GG
+    : WORKING_DAYS_MONTHLY_6GG;
 
-  const annualTaxable = totalAnnualGross - annualSocialContrib - annualFcContrib - annualPerseoContrib;
+  // ─────────────────────────────────────────────────────────────────────────
+  // 1. COMPETENZE LORDE MENSILI
+  // ─────────────────────────────────────────────────────────────────────────
+  const baseMonthly        = positionDetail.baseAnnual / MONTHS_PER_YEAR;
+  const compartoMonthly    = tableEntry.indennitaCompartoMonthly;
+  const ivcMonthly         = tableEntry.ivcMonthly;
 
-  // 3. IRPEF LORDA (Annuale)
-  let annualGrossIrpef = 0;
-  let remainingTaxable = annualTaxable;
-  let prevLimit = 0;
+  // Voci accessorie (inserite dall'utente)
+  const accessorioFissoMensile =
+    state.monthlyPoIndennita +
+    state.monthlyPoRisultato +
+    state.monthlySpecificheResponsabilita +
+    state.monthlyTurno +
+    state.monthlyReperibilita +
+    state.monthlyDisagio +
+    state.monthlyBilingue;
 
-  for (const bracket of IRPEF_BRACKETS) {
-    const amountInBracket = Math.max(0, Math.min(remainingTaxable, bracket.limit - prevLimit));
-    annualGrossIrpef += amountInBracket * bracket.rate;
-    remainingTaxable -= amountInBracket;
-    prevLimit = bracket.limit;
-    if (remainingTaxable <= 0) break;
-  }
+  const accessorioVariabileMensile =
+    state.monthlyPerformance +
+    state.monthlyProgetto +
+    state.monthlyIncentivi113 +
+    state.monthlyOrdStraordinario;
 
-  // 4. DETRAZIONI LAVORO DIPENDENTE (Annuale)
-  let standardDeductionAnnual = 0;
-  if (annualTaxable <= 15000) {
-    standardDeductionAnnual = 1955;
-  } else if (annualTaxable <= 28000) {
-    standardDeductionAnnual = 1910 + 1190 * ((28000 - annualTaxable) / 13000);
-  } else if (annualTaxable <= 50000) {
-    standardDeductionAnnual = 1910 * ((50000 - annualTaxable) / 22000);
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // 2. PENALIZZAZIONE BRUNETTA (Art. 71 D.Lgs. 150/2009)
+  // Riduzione pari alla retribuzione giornaliera per i giorni 1-10 di malattia.
+  // Base: stipendio tabellare + IVC + comparto (esclusi accessori).
+  // Retribuzione giornaliera = retribuzione mensile fissa / gg lavorativi mese
+  // ─────────────────────────────────────────────────────────────────────────
+  const dailyBaseRetrib = (baseMonthly + compartoMonthly + ivcMonthly) / workingDaysPerMonth;
+  const brunettaDays = Math.max(0, Math.min(state.sickDays, 10));
+  const brunettaPenaltyMonthly = brunettaDays * dailyBaseRetrib;
 
-  // 5. TRATTAMENTO INTEGRATIVO (EX BONUS 100€)
-  // Nota: Credito fiscale post-tax, non entra nel calcolo dell'imponibile.
-  let trattamentoIntegrativoAnnual = 0;
-  if (state.useTrattamentoIntegrativo) {
-    if (annualTaxable <= 15000) {
-      // Pieno diritto se l'imposta lorda supera la detrazione (capienza)
-      if (annualGrossIrpef > standardDeductionAnnual) {
-        trattamentoIntegrativoAnnual = 1200;
-      }
-    } else if (annualTaxable <= 28000) {
-      // Per redditi tra 15k e 28k spetta se la somma di alcune detrazioni supera l'imposta lorda.
-      // In un simulatore standard si assume che se attivato l'utente ha detrazioni per oneri che giustificano il bonus.
-      // Calcoliamo la differenza teorica rispetto alla detrazione da lavoro dipendente.
-      trattamentoIntegrativoAnnual = 1200; 
-    }
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // 3. LORDO MENSILE E ANNUALE
+  // Il lordo mensile comprende tutte le voci senza la trattenuta Brunetta.
+  // Le somme accessorie del FRD NON concorrono alla base imponibile INPS
+  // ai fini pensionistici (GDP/CPDEL), ma concorrono a quella IRPEF.
+  // ─────────────────────────────────────────────────────────────────────────
+  const grossMonthly =
+    baseMonthly + compartoMonthly + ivcMonthly +
+    accessorioFissoMensile + accessorioVariabileMensile -
+    brunettaPenaltyMonthly;
 
-  // 6. NUOVO CUNEO FISCALE (RIFORMA 2025/2026)
-  let bonusCuneoAnnual = 0;
-  let ulterioreDetrazioneCuneoAnnual = 0;
+  const grossAnnual = grossMonthly * MONTHS_PER_YEAR; // esclusa tredicesima
 
-  if (state.useNuovoCuneoFiscal) {
-    if (annualTaxable <= 20000) {
-      bonusCuneoAnnual = annualTaxable * 0.071;
-    } else if (annualTaxable <= 32000) {
-      ulterioreDetrazioneCuneoAnnual = 1000;
-    } else if (annualTaxable <= 40000) {
-      ulterioreDetrazioneCuneoAnnual = 1000 * ((40000 - annualTaxable) / 8000);
-    }
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // 4. BASE IMPONIBILE INPS (GDP — ex INPDAP)
+  //    Base previdenziale CPDEL = stipendio tabellare + IVC + comparto
+  //    Le voci del FRD (accessori variabili) sono escluse ai fini pensionistici.
+  //    Fonte: art. 2, D.Lgs. 181/1997 e circolari INPS GDP
+  // ─────────────────────────────────────────────────────────────────────────
+  const basePrevidenzialeAnnual =
+    (baseMonthly + compartoMonthly + ivcMonthly) * MONTHS_PER_YEAR;
 
-  // 7. CALCOLO FINALE TASSE E NETTO
-  const netIrpefAnnual = Math.max(0, annualGrossIrpef - standardDeductionAnnual - ulterioreDetrazioneCuneoAnnual);
-  
-  const regionData = REGIONS.find(r => r.name === state.region) || REGIONS[1];
-  const regionalAddAnnual = annualTaxable * regionData.rate;
-  const municipalAddAnnual = annualTaxable * 0.008; 
+  const socialContributionsAnnual = basePrevidenzialeAnnual * PREV_RATES.CPDEL;
+  const fcContributionsAnnual     = basePrevidenzialeAnnual * PREV_RATES.FONDO_CREDITO;
 
-  const totalNetAnnual = (annualTaxable - netIrpefAnnual - regionalAddAnnual - municipalAddAnnual) 
-                        + trattamentoIntegrativoAnnual 
-                        + bonusCuneoAnnual;
+  // Perseo-Sirio: base = retribuzione utile TFR (≈ tabellare + IVC + comparto)
+  const perseoContributionAnnual = state.isPerseoSirio
+    ? basePrevidenzialeAnnual * state.perseoContribRate
+    : 0;
 
-  // 8. RIPARTIZIONE MENSILE
+  const totalPrevidenzialeAnnual =
+    socialContributionsAnnual + fcContributionsAnnual + perseoContributionAnnual;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 5. BASE IMPONIBILE IRPEF (TUIR)
+  //    = Lordo annuo - Contributi previdenziali totali dipendente
+  // ─────────────────────────────────────────────────────────────────────────
+  const taxableAnnual = grossAnnual - totalPrevidenzialeAnnual;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 6. IRPEF LORDA ANNUALE
+  // ─────────────────────────────────────────────────────────────────────────
+  const grossIrpefAnnual = calcGrossIrpef(taxableAnnual);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 7. DETRAZIONI
+  // ─────────────────────────────────────────────────────────────────────────
+  const workDeductionAnnual = calcWorkDeduction(taxableAnnual);
+  const familyDeductionAnnual = calcFamilyDeductions(
+    taxableAnnual,
+    state.coniugeACarico,
+    state.figliACarico,
+    state.altriCarichi
+  );
+
+  const standardDeductionAnnual = workDeductionAnnual + familyDeductionAnnual;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 8. CUNEO FISCALE 2025
+  // ─────────────────────────────────────────────────────────────────────────
+  const { bonus: bonusCuneoAnnual, detrazioneUlteriore: ulterioreDetrazioneCuneoAnnual } =
+    state.useNuovoCuneoFiscal
+      ? calcCuneo2025(taxableAnnual)
+      : { bonus: 0, detrazioneUlteriore: 0 };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 9. TRATTAMENTO INTEGRATIVO
+  // ─────────────────────────────────────────────────────────────────────────
+  const trattamentoIntegrativoAnnual = state.useTrattamentoIntegrativo
+    ? calcTrattamentoIntegrativo(taxableAnnual, grossIrpefAnnual, workDeductionAnnual)
+    : 0;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 10. IRPEF NETTA ANNUALE
+  // ─────────────────────────────────────────────────────────────────────────
+  const netIrpefAnnual = Math.max(
+    0,
+    grossIrpefAnnual - standardDeductionAnnual - ulterioreDetrazioneCuneoAnnual
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 11. ADDIZIONALI (ritenuta annua — pagata in 11 rate / anno successivo)
+  // ─────────────────────────────────────────────────────────────────────────
+  const regionData = REGIONS.find(r => r.name === state.region) ?? REGIONS[0];
+  const regionalAddAnnual  = taxableAnnual * regionData.rate;
+  const municipalAddAnnual = taxableAnnual * state.municipalAddRate;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 12. NETTO ANNUALE E MENSILE
+  // ─────────────────────────────────────────────────────────────────────────
+  const totalNetAnnual =
+    taxableAnnual
+    - netIrpefAnnual
+    - regionalAddAnnual
+    - municipalAddAnnual
+    + trattamentoIntegrativoAnnual
+    + bonusCuneoAnnual;
+
   return {
-    grossMonthly: totalAnnualGross / 13,
-    grossAnnual: totalAnnualGross,
-    baseMonthly: baseAnnual / 12,
-    compartoMonthly: compartoAnnual / 12,
-    ivcMonthly: ivcAnnual / 12,
-    accessoryMonthly: state.monthlyPerformance,
-    brunettaPenaltyMonthly: brunettaPenaltyAnnual / 12,
-    socialContributions: annualSocialContrib / 12,
-    fcContributions: annualFcContrib / 12,
-    perseoContribution: annualPerseoContrib / 12,
-    taxableIncome: annualTaxable / 12,
-    taxableAnnual: annualTaxable,
-    grossIrpefAnnual: annualGrossIrpef,
+    baseMonthly,
+    compartoMonthly,
+    ivcMonthly,
+    poIndennitaMonthly:            state.monthlyPoIndennita,
+    poRisultatoMonthly:            state.monthlyPoRisultato,
+    specificheResponsabilitaMonthly: state.monthlySpecificheResponsabilita,
+    turnoMonthly:                  state.monthlyTurno,
+    reperibilitaMonthly:           state.monthlyReperibilita,
+    disagioMonthly:                state.monthlyDisagio,
+    performanceMonthly:            state.monthlyPerformance,
+    progettoMonthly:               state.monthlyProgetto,
+    incentivi113Monthly:           state.monthlyIncentivi113,
+    straordinarioMonthly:          state.monthlyOrdStraordinario,
+
+    grossMonthly,
+    grossAnnual,
+
+    socialContributions:   socialContributionsAnnual  / MONTHS_PER_YEAR,
+    fcContributions:       fcContributionsAnnual      / MONTHS_PER_YEAR,
+    perseoContribution:    perseoContributionAnnual   / MONTHS_PER_YEAR,
+
+    taxableIncome:  taxableAnnual / MONTHS_PER_YEAR,
+    taxableAnnual,
+
+    grossIrpefAnnual,
     standardDeductionAnnual,
-    irpef: netIrpefAnnual / 12,
-    regionalAdd: regionalAddAnnual / 12,
-    municipalAdd: municipalAddAnnual / 12,
-    netIncome: totalNetAnnual / 12,
-    trattamentoIntegrativo: trattamentoIntegrativoAnnual / 12,
-    bonusCuneo: bonusCuneoAnnual / 12,
-    ulterioreDetrazioneCuneo: ulterioreDetrazioneCuneoAnnual / 12
+    detrazioniCarichi: familyDeductionAnnual,
+    irpef: netIrpefAnnual / MONTHS_PER_YEAR,
+
+    regionalAdd:  regionalAddAnnual  / MONTHS_PER_YEAR,
+    municipalAdd: municipalAddAnnual / MONTHS_PER_YEAR,
+
+    trattamentoIntegrativo: trattamentoIntegrativoAnnual / MONTHS_PER_YEAR,
+    bonusCuneo:             bonusCuneoAnnual             / MONTHS_PER_YEAR,
+    ulterioreDetrazioneCuneo: ulterioreDetrazioneCuneoAnnual / MONTHS_PER_YEAR,
+    ulterioreDetrazioneCuneoAnnual,
+
+    brunettaPenaltyMonthly,
+    netIncome: totalNetAnnual / MONTHS_PER_YEAR,
   };
 };
 
+// ---------------------------------------------------------------------------
+// Ferie spettanti (art. 28 CCNL Funzioni Locali)
+// ---------------------------------------------------------------------------
 export const getLeaveEntitlement = (isFiveDayWeek: boolean): number => {
   return isFiveDayWeek ? 28 : 32;
 };
