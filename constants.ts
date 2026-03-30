@@ -13,63 +13,63 @@ export const COMPANY_INFO = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// TABELLE STIPENDIALI — CCNL Funzioni Locali 2019-2021 (firmato 16/11/2022)
-// NB: Aggiornare con CCNL 2022-2024 non appena pubblicati i valori ufficiali.
-// Fonte: Allegato A CCNL 16/11/2022 — importi annui lordi
+// TABELLE STIPENDIALI — CCNL Funzioni Locali 2022-2024 (firmato 23/02/2026)
+// Fonte: Tabella B CCNL 23/02/2026 — stipendi tabellari annui lordi al 1.1.2024
+// IVC conglobata nello stipendio tabellare ai sensi art. 56 CCNL 2022-2024
 // ---------------------------------------------------------------------------
 export const SALARY_DATABASE: Record<EmploymentArea, SalaryTableEntry> = {
   [EmploymentArea.FUNZIONARI_EQ]: {
     label: 'Area dei Funzionari e dell\'Elevata Qualificazione (ex D)',
-    // Indennità di comparto mensile — art. 56 CCNL 2019-2021
+    // Indennità di comparto mensile — art. 56 CCNL 2022-2024 (invariata)
     indennitaCompartoMonthly: 36.33,
-    // IVC mensile — ai sensi Accordo Quadro ARAN 2022
-    ivcMonthly: 139.00,
+    // IVC conglobata nello stipendio tabellare (art. 56 CCNL 2022-2024)
+    ivcMonthly: 0,
     positions: {
-      'F1': { baseAnnual: 23212.35, label: 'F1 (ex D1)' },
-      'F2': { baseAnnual: 24200.00, label: 'F2 (ex D2)' },
-      'F3': { baseAnnual: 26500.00, label: 'F3 (ex D3)' },
-      'F4': { baseAnnual: 27800.00, label: 'F4 (ex D4)' },
-      'F5': { baseAnnual: 29100.00, label: 'F5 (ex D5)' },
-      'F6': { baseAnnual: 30500.00, label: 'F6 (ex D6)' },
-      'F7': { baseAnnual: 31800.00, label: 'F7 (ex D7)' },
+      'F1': { baseAnnual: 24941.67, label: 'F1 (ex D1)' },
+      'F2': { baseAnnual: 26002.90, label: 'F2 (ex D2)' },
+      'F3': { baseAnnual: 28474.25, label: 'F3 (ex D3)' },
+      'F4': { baseAnnual: 29871.10, label: 'F4 (ex D4)' },
+      'F5': { baseAnnual: 31267.95, label: 'F5 (ex D5)' },
+      'F6': { baseAnnual: 32772.25, label: 'F6 (ex D6)' },
+      'F7': { baseAnnual: 34169.10, label: 'F7 (ex D7)' },
     },
   },
   [EmploymentArea.ISTRUTTORI]: {
     label: 'Area degli Istruttori (ex C)',
     indennitaCompartoMonthly: 32.06,
-    ivcMonthly: 125.00,
+    ivcMonthly: 0,
     positions: {
-      'I1': { baseAnnual: 21392.87, label: 'I1 (ex C1)' },
-      'I2': { baseAnnual: 22100.00, label: 'I2 (ex C2)' },
-      'I3': { baseAnnual: 23000.00, label: 'I3 (ex C3)' },
-      'I4': { baseAnnual: 24100.00, label: 'I4 (ex C4)' },
-      'I5': { baseAnnual: 25200.00, label: 'I5 (ex C5)' },
+      'I1': { baseAnnual: 22986.59, label: 'I1 (ex C1)' },
+      'I2': { baseAnnual: 23746.40, label: 'I2 (ex C2)' },
+      'I3': { baseAnnual: 24713.45, label: 'I3 (ex C3)' },
+      'I4': { baseAnnual: 25895.40, label: 'I4 (ex C4)' },
+      'I5': { baseAnnual: 27077.34, label: 'I5 (ex C5)' },
     },
   },
   [EmploymentArea.OPERATORI_ESPERTI]: {
     label: 'Area degli Operatori Esperti (ex B)',
     indennitaCompartoMonthly: 27.52,
-    ivcMonthly: 115.00,
+    ivcMonthly: 0,
     positions: {
-      'OE1': { baseAnnual: 19034.51, label: 'OE1 (ex B1)' },
-      'OE2': { baseAnnual: 19600.00, label: 'OE2 (ex B2)' },
-      'OE3': { baseAnnual: 20400.00, label: 'OE3 (ex B3)' },
-      'OE4': { baseAnnual: 21200.00, label: 'OE4 (ex B4)' },
-      'OE5': { baseAnnual: 22100.00, label: 'OE5 (ex B5)' },
-      'OE6': { baseAnnual: 22900.00, label: 'OE6 (ex B6)' },
-      'OE7': { baseAnnual: 23800.00, label: 'OE7 (ex B7)' },
+      'OE1': { baseAnnual: 20452.55, label: 'OE1 (ex B1)' },
+      'OE2': { baseAnnual: 21060.17, label: 'OE2 (ex B2)' },
+      'OE3': { baseAnnual: 21919.77, label: 'OE3 (ex B3)' },
+      'OE4': { baseAnnual: 22779.37, label: 'OE4 (ex B4)' },
+      'OE5': { baseAnnual: 23746.41, label: 'OE5 (ex B5)' },
+      'OE6': { baseAnnual: 24606.01, label: 'OE6 (ex B6)' },
+      'OE7': { baseAnnual: 25573.06, label: 'OE7 (ex B7)' },
     },
   },
   [EmploymentArea.OPERATORI]: {
     label: 'Area degli Operatori (ex A)',
     indennitaCompartoMonthly: 22.68,
-    ivcMonthly: 111.00,
+    ivcMonthly: 0,
     positions: {
-      'O1': { baseAnnual: 18283.31, label: 'O1 (ex A1)' },
-      'O2': { baseAnnual: 18800.00, label: 'O2 (ex A2)' },
-      'O3': { baseAnnual: 19400.00, label: 'O3 (ex A3)' },
-      'O4': { baseAnnual: 19900.00, label: 'O4 (ex A4)' },
-      'O5': { baseAnnual: 20600.00, label: 'O5 (ex A5)' },
+      'O1': { baseAnnual: 19645.43, label: 'O1 (ex A1)' },
+      'O2': { baseAnnual: 20200.61, label: 'O2 (ex A2)' },
+      'O3': { baseAnnual: 20845.31, label: 'O3 (ex A3)' },
+      'O4': { baseAnnual: 21382.56, label: 'O4 (ex A4)' },
+      'O5': { baseAnnual: 22134.72, label: 'O5 (ex A5)' },
     },
   },
 };
