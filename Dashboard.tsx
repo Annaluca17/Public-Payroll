@@ -427,10 +427,9 @@ export const Dashboard: React.FC = () => {
           </div>
 
           {/* Avvisi normativi */}
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800 space-y-1">
-            <p className="font-black flex items-center gap-1"><i className="fas fa-triangle-exclamation"></i> Note di aggiornamento normativo</p>
-            <ul className="list-disc list-inside space-y-0.5 font-medium text-amber-700">
-              <li>Tabelle stipendiali basate su CCNL 16/11/2022 (triennio 2019-2021) — aggiornare all'atto della firma CCNL 2022-2024.</li>
+          <div className="bg-sky-50 border border-sky-200 rounded-2xl p-4 text-xs text-sky-800 space-y-1">
+            <p className="font-black flex items-center gap-1"><i className="fas fa-triangle-exclamation"></i> Note informative</p>
+            <ul className="list-disc list-inside space-y-0.5 font-medium text-sky-700">
               <li>Cuneo fiscale 2025: struttura a 3 fasce bonus (7.1/5.3/4.8%) conforme art. 1 cc. 4-9 L. 207/2024.</li>
               <li>Trattamento integrativo fascia 15k-28k: soggetto a verifica capienza individuale — valore stimato.</li>
               <li>Addizionale comunale impostata al {(state.municipalAddRate * 100).toFixed(2)}% — verificare delibera del Comune di appartenenza.</li>
